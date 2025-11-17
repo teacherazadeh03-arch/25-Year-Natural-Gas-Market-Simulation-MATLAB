@@ -1,136 +1,121 @@
-%% ---------------------------------------------
-%  25-Year Global Energy Demand & Price Simulation
-%  Holistic Model for Any Country/Region
-%  Includes inflation, subsidy reforms, insulation, behavior, HDD, macro shocks, population growth
-%  Gauss–Seidel iterative solver
-% ----------------------------------------------
-clear; clc;
+%% ---------------- Energy Demand and Price Forecasting Model ----------------
 
-%% ---------------- Simulation Parameters ----------------
-years = 25;
+% Initial values
+years = 25;              % Number of years for simulation
+income0 = 50000;         % Average household income in $
+base_price0 = 3.5;       % Initial natural gas price ($/unit)
+demand0 = 700;           % Initial demand (million m3/day or energy unit)
+HDD0 = 3000;             % Initial Heating Degree Days (HDD)
+pop0 = 50e6;             % Initial population (50 million)
+subsidy_rate = 0.5;      % Initial subsidy rate (50%)
+subsidy_removal_rate = 0.02;  % 2% annual subsidy removal rate
+inflation_rate_nominal = 0.03;  % Nominal inflation rate
+demand_growth_baseline = 0.02;  % Baseline demand growth rate
+tech_innovation_factor = 0.01;  % Energy efficiency improvement factor
+carbon_tax_rate = 0.05;  % Carbon tax applied after year 10
 
-% Initial market values (general, country-specific)
-income0 = 50000;        % nominal average household income (unitless, adjust to currency)
-base_price0 = 2;        % energy price (unitless, relative or $/unit)
-demand0 = 700;          % initial demand (million m3/day or energy unit)
-HDD0 = 3000;            % heating degree days (proxy for heating demand)
-pop0 = 50e6;            % initial population (example default)
+% Population parameters
+pop_growth = 0.01;       % Population growth rate (1% per year)
 
-supply_const = 0.015;   % supply elasticity
+% Price elasticity parameters (income-sensitive, low and high income)
+low_income_share = 0.3;  % 30% of population is low-income
+high_income_share = 0.7; % 70% of population is high-income
+price_elasticity_low = -0.6;
+price_elasticity_high = -0.3;
 
-% Demand function coefficients (country-specific)
-a = 1.0;     % income effect
-b = 0.0012;  % weather/HDD sensitivity
-c = -0.4;    % price elasticity
+% Heating Degree Days (HDD) parameters
+HDD_change = 0.01;  % Annual change in HDD due to climate change
 
-% Gauss–Seidel settings
-tol = 1e-3;
-maxIter = 1000;
+% Behavioral factors
+insulation_improve = 0.01;  % 1% increase in insulation efficiency annually
+appliance_efficiency_improve = 0.015;  % 1.5% improvement in appliances annually
+behavioral_change_factor = 0.005;  % 0.5% demand reduction per year due to behavioral changes
 
-% Annual assumptions
-inflation_rate_nominal = 0.03;       % 3% nominal inflation
-subsidy_reform_speed = 0.01;         % 1% increase in real price per year
-demand_growth_baseline = 0.02;       % 2% baseline structural demand growth
-behavior_change = 0.002;             % 0.2% annual demand reduction due to behavior
-insulation_improve = 0.01;           % 1% annual improvement in insulation
-HDD_change = -0.001;                 % slight decrease in HDD per year
+% Arrays to store results
+income_arr = zeros(years, 1);
+demand_arr = zeros(years, 1);
+price_arr = zeros(years, 1);
+pop_arr = zeros(years, 1);
+HDD_arr = zeros(years, 1);
 
-pop_growth = 0.01;                    % 1% annual population growth (adjustable)
-
-% Macro-economic shocks every 5–10 years
-macro_years = [5, 10, 15, 20];
-macro_income_mult = [1.2, 1.1, 1.3, 1.15];  % income multipliers
-macro_price_mult = [0.9, 1.2, 1.4, 1.2];    % base price multipliers
-
-%% ---------------- Arrays to Store Results ----------------
-income_arr = zeros(years,1);
-price_arr = zeros(years,1);
-demand_arr = zeros(years,1);
-HDD_arr = zeros(years,1);
-pop_arr = zeros(years,1);
-
-%% ---------------- Initial Values ----------------
-income = income0;
-price = base_price0;
-demand = demand0;
-HDD = HDD0;
-population = pop0;
-
-%% ---------------- Yearly Simulation ----------------
+% ---------------- Yearly Simulation ----------------
 for y = 1:years
-    
-    % Apply macro-economic shocks
-    if ismember(y, macro_years)
-        idx = find(macro_years == y, 1);
-        income = income * macro_income_mult(idx);
-        base_price0 = base_price0 * macro_price_mult(idx);
-    end
-    
+    % Update population based on growth
+    population = pop0 * (1 + pop_growth)^(y - 1);
+
     % Apply inflation to income
-    income = income * (1 + inflation_rate_nominal);
+    income = income0 * (1 + inflation_rate_nominal)^(y - 1);
+
+    % Adjust demand based on subsidy reform and energy efficiency improvements
+    base_price = base_price0 * (1 - subsidy_rate);  % Adjust price for subsidies
+    subsidy_rate = max(subsidy_rate - subsidy_removal_rate, 0);  % Gradually remove subsidy
     
-    % Gradual subsidy reform
-    base_price0 = base_price0 * (1 + subsidy_reform_speed);
+    % Apply energy efficiency improvements for insulation and appliances
+    insulation_improvement = 1 + insulation_improve * y;  % Insulation improves each year
+    appliance_efficiency = 1 + appliance_efficiency_improve * y;  % Appliance efficiency improves each year
+    total_efficiency = insulation_improvement * appliance_efficiency;
     
-    % Population growth
-    population = pop0 * (1 + pop_growth)^(y-1);
+    % Apply population segmentation (low vs. high income)
+    demand_low_income = demand0 * low_income_share;  % 30% of total demand from low-income households
+    demand_high_income = demand0 * high_income_share;  % 70% from high-income households
+
+    % Apply price elasticity to each group
+    demand_low_income = demand_low_income * (1 + price_elasticity_low * (base_price / base_price0));
+    demand_high_income = demand_high_income * (1 + price_elasticity_high * (base_price / base_price0));
+
+    % Total demand for the year
+    demand = demand_low_income + demand_high_income;
     
-    % Heating demand adjustment (climate effect)
-    HDD = HDD * (1 + HDD_change);
+    % Apply behavioral change (smart homes, energy conservation)
+    demand = demand * (1 - behavioral_change_factor * y);
     
-    % Combined efficiency factor: insulation + behavior
-    demand_eff_factor = (1 - insulation_improve) * (1 - behavior_change);
-    
-    % Baseline structural demand growth
-    demand = demand * (1 + demand_growth_baseline);
-    
-    % Gauss–Seidel iteration for this year
-    for k = 1:maxIter
-        % Update demand (scaled by population)
-        new_demand = ((a*(income/10000) + b*HDD + c*price) * demand_eff_factor) * (population/1e6);
-        
-        % Update price based on supply constraints
-        new_price = base_price0 + supply_const * (new_demand - demand0);
-        
-        % Convergence check
-        if abs(new_price - price) < tol && abs(new_demand - demand) < tol
-            break;
-        end
-        
-        demand = new_demand;
-        price = new_price;
+    % Apply changes in heating degree days (climate effect)
+    HDD = HDD0 * (1 + HDD_change * y);
+
+    % Adjust demand based on heating needs and efficiency improvements
+    demand = demand * (1 + HDD / HDD0);  % Increase demand if HDD increases (colder weather)
+
+    % Apply technological improvements to demand (energy efficiency)
+    demand = demand * total_efficiency;
+
+    % Apply carbon tax after year 10
+    if y > 10
+        base_price = base_price * (1 + carbon_tax_rate);  % Increase price due to carbon tax
     end
     
-    % Store results
+    % Store the results for the current year
     income_arr(y) = income;
     demand_arr(y) = demand;
-    price_arr(y) = price;
-    HDD_arr(y) = HDD;
+    price_arr(y) = base_price;
     pop_arr(y) = population;
+    HDD_arr(y) = HDD;
+    
 end
 
-%% ---------------- Plot Results ----------------
-years_vec = 1:years;
-
+% ---------------- Results Visualization ----------------
 figure;
-subplot(4,1,1)
-plot(years_vec, demand_arr,'-o','LineWidth',1.5)
-ylabel('Energy Demand (units)')
-title('Global Energy Market Simulation (Country-Agnostic)')
-grid on
+subplot(2, 2, 1);
+plot(1:years, income_arr, '-o');
+title('Income Growth Over Time');
+xlabel('Year');
+ylabel('Income ($)');
 
-subplot(4,1,2)
-plot(years_vec, price_arr,'-s','LineWidth',1.5)
-ylabel('Energy Price (relative)')
-grid on
+subplot(2, 2, 2);
+plot(1:years, demand_arr, '-o');
+title('Energy Demand Over Time');
+xlabel('Year');
+ylabel('Demand (million m3/day)');
 
-subplot(4,1,3)
-plot(years_vec, income_arr,'-^','LineWidth',1.5)
-ylabel('Nominal Income')
-grid on
+subplot(2, 2, 3);
+plot(1:years, price_arr, '-o');
+title('Energy Price Over Time');
+xlabel('Year');
+ylabel('Price ($/unit)');
 
-subplot(4,1,4)
-plot(years_vec, pop_arr/1e6,'-d','LineWidth',1.5)
-ylabel('Population (millions)')
-xlabel('Year')
-grid on
+subplot(2, 2, 4);
+plot(1:years, pop_arr, '-o');
+title('Population Growth Over Time');
+xlabel('Year');
+ylabel('Population (millions)');
+
+%% ---------------- End of Simulation ----------------
