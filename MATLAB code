@@ -1,0 +1,136 @@
+%% ---------------------------------------------
+%  25-Year Global Energy Demand & Price Simulation
+%  Holistic Model for Any Country/Region
+%  Includes inflation, subsidy reforms, insulation, behavior, HDD, macro shocks, population growth
+%  Gauss–Seidel iterative solver
+% ----------------------------------------------
+clear; clc;
+
+%% ---------------- Simulation Parameters ----------------
+years = 25;
+
+% Initial market values (general, country-specific)
+income0 = 50000;        % nominal average household income (unitless, adjust to currency)
+base_price0 = 2;        % energy price (unitless, relative or $/unit)
+demand0 = 700;          % initial demand (million m3/day or energy unit)
+HDD0 = 3000;            % heating degree days (proxy for heating demand)
+pop0 = 50e6;            % initial population (example default)
+
+supply_const = 0.015;   % supply elasticity
+
+% Demand function coefficients (country-specific)
+a = 1.0;     % income effect
+b = 0.0012;  % weather/HDD sensitivity
+c = -0.4;    % price elasticity
+
+% Gauss–Seidel settings
+tol = 1e-3;
+maxIter = 1000;
+
+% Annual assumptions
+inflation_rate_nominal = 0.03;       % 3% nominal inflation
+subsidy_reform_speed = 0.01;         % 1% increase in real price per year
+demand_growth_baseline = 0.02;       % 2% baseline structural demand growth
+behavior_change = 0.002;             % 0.2% annual demand reduction due to behavior
+insulation_improve = 0.01;           % 1% annual improvement in insulation
+HDD_change = -0.001;                 % slight decrease in HDD per year
+
+pop_growth = 0.01;                    % 1% annual population growth (adjustable)
+
+% Macro-economic shocks every 5–10 years
+macro_years = [5, 10, 15, 20];
+macro_income_mult = [1.2, 1.1, 1.3, 1.15];  % income multipliers
+macro_price_mult = [0.9, 1.2, 1.4, 1.2];    % base price multipliers
+
+%% ---------------- Arrays to Store Results ----------------
+income_arr = zeros(years,1);
+price_arr = zeros(years,1);
+demand_arr = zeros(years,1);
+HDD_arr = zeros(years,1);
+pop_arr = zeros(years,1);
+
+%% ---------------- Initial Values ----------------
+income = income0;
+price = base_price0;
+demand = demand0;
+HDD = HDD0;
+population = pop0;
+
+%% ---------------- Yearly Simulation ----------------
+for y = 1:years
+    
+    % Apply macro-economic shocks
+    if ismember(y, macro_years)
+        idx = find(macro_years == y, 1);
+        income = income * macro_income_mult(idx);
+        base_price0 = base_price0 * macro_price_mult(idx);
+    end
+    
+    % Apply inflation to income
+    income = income * (1 + inflation_rate_nominal);
+    
+    % Gradual subsidy reform
+    base_price0 = base_price0 * (1 + subsidy_reform_speed);
+    
+    % Population growth
+    population = pop0 * (1 + pop_growth)^(y-1);
+    
+    % Heating demand adjustment (climate effect)
+    HDD = HDD * (1 + HDD_change);
+    
+    % Combined efficiency factor: insulation + behavior
+    demand_eff_factor = (1 - insulation_improve) * (1 - behavior_change);
+    
+    % Baseline structural demand growth
+    demand = demand * (1 + demand_growth_baseline);
+    
+    % Gauss–Seidel iteration for this year
+    for k = 1:maxIter
+        % Update demand (scaled by population)
+        new_demand = ((a*(income/10000) + b*HDD + c*price) * demand_eff_factor) * (population/1e6);
+        
+        % Update price based on supply constraints
+        new_price = base_price0 + supply_const * (new_demand - demand0);
+        
+        % Convergence check
+        if abs(new_price - price) < tol && abs(new_demand - demand) < tol
+            break;
+        end
+        
+        demand = new_demand;
+        price = new_price;
+    end
+    
+    % Store results
+    income_arr(y) = income;
+    demand_arr(y) = demand;
+    price_arr(y) = price;
+    HDD_arr(y) = HDD;
+    pop_arr(y) = population;
+end
+
+%% ---------------- Plot Results ----------------
+years_vec = 1:years;
+
+figure;
+subplot(4,1,1)
+plot(years_vec, demand_arr,'-o','LineWidth',1.5)
+ylabel('Energy Demand (units)')
+title('Global Energy Market Simulation (Country-Agnostic)')
+grid on
+
+subplot(4,1,2)
+plot(years_vec, price_arr,'-s','LineWidth',1.5)
+ylabel('Energy Price (relative)')
+grid on
+
+subplot(4,1,3)
+plot(years_vec, income_arr,'-^','LineWidth',1.5)
+ylabel('Nominal Income')
+grid on
+
+subplot(4,1,4)
+plot(years_vec, pop_arr/1e6,'-d','LineWidth',1.5)
+ylabel('Population (millions)')
+xlabel('Year')
+grid on
